@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: true
+    },
+    build: {
+      outDir: 'dist',
+      sourcemap: false
     }
   };
 });
