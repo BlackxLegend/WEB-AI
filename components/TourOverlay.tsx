@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { X, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 
@@ -32,7 +31,8 @@ export const TourOverlay: React.FC<TourOverlayProps> = ({ steps, isOpen, onCompl
           const rect = el.getBoundingClientRect();
           
           // Check if element is effectively visible (on screen and has size)
-          const isOffScreen = rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth;
+          // Relaxed checks for mobile drawer items that might be partially off-screen
+          const isOffScreen = rect.bottom < 0 || rect.top > window.innerHeight;
           const isHidden = rect.width === 0 && rect.height === 0;
 
           if (isOffScreen || isHidden) {
@@ -41,7 +41,10 @@ export const TourOverlay: React.FC<TourOverlayProps> = ({ steps, isOpen, onCompl
               setTargetRect(null);
           } else {
               setTargetRect(rect);
-              el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+              // Only scroll if strictly needed
+              if (rect.top < 0 || rect.bottom > window.innerHeight) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+              }
           }
         } else {
             setTargetRect(null);
@@ -52,7 +55,7 @@ export const TourOverlay: React.FC<TourOverlayProps> = ({ steps, isOpen, onCompl
     };
 
     // Small delay to allow rendering/layout to settle
-    const timer = setTimeout(updatePosition, 100);
+    const timer = setTimeout(updatePosition, 250);
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition);
     
@@ -85,8 +88,11 @@ export const TourOverlay: React.FC<TourOverlayProps> = ({ steps, isOpen, onCompl
     const viewportHeight = window.innerHeight;
     const isMobile = viewportWidth < 640;
     
-    // Responsive width: max 320px, but on small screens use 90% of viewport
-    const tooltipWidth = Math.min(320, viewportWidth - 32); 
+    // Responsive width logic
+    const margin = 16;
+    const maxTooltipWidth = 320;
+    // Ensure tooltip never exceeds viewport width minus margins
+    const tooltipWidth = Math.min(maxTooltipWidth, viewportWidth - (margin * 2));
 
     if (!targetRect) {
       // Centered Modal
@@ -96,77 +102,82 @@ export const TourOverlay: React.FC<TourOverlayProps> = ({ steps, isOpen, onCompl
         transform: 'translate(-50%, -50%)',
         width: `${tooltipWidth}px`,
         maxWidth: '90vw',
-        position: 'fixed'
+        position: 'fixed' as const
       };
     }
 
-    const margin = 12;
     let top = 0;
     let left = 0;
 
     // Determine effective position
-    // On mobile, force 'top' or 'bottom' to avoid horizontal cramping
+    // On mobile, force 'bottom' usually to avoid squishing
     let pos = currentStep.position || 'bottom';
+    
+    // Override position for mobile if 'left' or 'right' are requested
+    // as there is rarely enough horizontal space
     if (isMobile && (pos === 'left' || pos === 'right')) {
-        // Choose based on vertical space available
         const spaceBelow = viewportHeight - targetRect.bottom;
         const spaceAbove = targetRect.top;
-        pos = spaceBelow > 200 ? 'bottom' : (spaceAbove > 200 ? 'top' : 'bottom');
+        pos = spaceBelow > 250 ? 'bottom' : (spaceAbove > 250 ? 'top' : 'bottom');
     }
 
-    // Basic Positioning Logic relative to viewport (since we use fixed position for overlay)
+    // Basic Positioning Logic relative to viewport
     switch (pos) {
       case 'right':
         top = targetRect.top + (targetRect.height / 2) - 100; 
-        left = targetRect.right + margin;
+        left = targetRect.right + 12;
         break;
       case 'left':
         top = targetRect.top + (targetRect.height / 2) - 100;
-        left = targetRect.left - tooltipWidth - margin;
+        left = targetRect.left - tooltipWidth - 12;
         break;
       case 'bottom':
-        top = targetRect.bottom + margin;
-        // Center horizontally relative to target, but clamp later
+        top = targetRect.bottom + 12;
         left = targetRect.left + (targetRect.width / 2) - (tooltipWidth / 2);
         break;
       case 'top':
       default:
-        // Use a rough estimate for height or let clamp fix it
-        top = targetRect.top - margin - 200; 
+        top = targetRect.top - 12 - 200; // rough estimate, rectified later
         left = targetRect.left + (targetRect.width / 2) - (tooltipWidth / 2);
         break;
     }
 
-    // --- Safety Clamping ---
+    // --- Safety Clamping (The most important part for mobile) ---
     
-    // 1. Horizontal Clamp
-    if (left < 16) left = 16;
-    if (left + tooltipWidth > viewportWidth - 16) left = viewportWidth - tooltipWidth - 16;
+    // 1. Horizontal Clamp: Keep fully within viewport with margins
+    if (left < margin) left = margin;
+    if (left + tooltipWidth > viewportWidth - margin) {
+        left = viewportWidth - tooltipWidth - margin;
+    }
     
     // 2. Vertical Clamp
     // Ensure we don't go off top
-    if (top < 16) top = 16;
-    // Ensure we don't go off bottom (assuming ~250px height for tooltip)
-    const estimatedHeight = 250; 
-    if (top + estimatedHeight > viewportHeight) {
-        // If it goes off bottom, try to flip to top if mostly aiming for bottom
+    if (top < margin) top = margin;
+    
+    // Ensure we don't go off bottom
+    // We assume a max height for the card to calculate 'bottom' collision roughly
+    const estimatedCardHeight = 220; 
+    if (top + estimatedCardHeight > viewportHeight - margin) {
+        // If bottom overflows, try flipping to top
         if (pos === 'bottom') {
-             const newTop = targetRect.top - margin - estimatedHeight;
-             if (newTop > 16) top = newTop;
-             else top = viewportHeight - estimatedHeight - 16; // last resort: stick to bottom edge
+             const flippedTop = targetRect.top - margin - estimatedCardHeight;
+             // Only flip if top has space
+             if (flippedTop > margin) {
+                 top = flippedTop;
+             } else {
+                 // If neither fits, stick to bottom of viewport
+                 top = viewportHeight - estimatedCardHeight - margin;
+             }
         } else {
-             top = viewportHeight - estimatedHeight - 16;
+             top = viewportHeight - estimatedCardHeight - margin;
         }
     }
 
-    // On mobile, if aiming for 'top', sometimes targetRect.top is small, so we might need to push it down
-    // But usually 'bottom' is safer.
-    
     return {
       top: `${top}px`,
       left: `${left}px`,
       width: `${tooltipWidth}px`,
-      position: 'fixed'
+      position: 'fixed' as const
     };
   };
 
@@ -179,7 +190,7 @@ export const TourOverlay: React.FC<TourOverlayProps> = ({ steps, isOpen, onCompl
             <div className="absolute inset-0 bg-transparent">
                 {/* Dark overlay with hole */}
                 <div 
-                   className="absolute inset-0 bg-black/60 transition-colors duration-500"
+                   className="absolute inset-0 bg-black/70 transition-colors duration-500"
                    style={{
                        clipPath: `polygon(
                            0% 0%, 
@@ -198,7 +209,7 @@ export const TourOverlay: React.FC<TourOverlayProps> = ({ steps, isOpen, onCompl
                 
                 {/* Border Ring around target */}
                 <div 
-                    className="absolute border-2 border-blue-500 rounded-lg shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all duration-300 ease-out"
+                    className="absolute border-2 border-blue-500 rounded-lg shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all duration-300 ease-out animate-pulse"
                     style={{
                         top: targetRect.top - 4,
                         left: targetRect.left - 4,
@@ -231,7 +242,7 @@ export const TourOverlay: React.FC<TourOverlayProps> = ({ steps, isOpen, onCompl
             </div>
 
             <div>
-                <h3 className="text-xl font-bold mb-2 text-white">{currentStep.title}</h3>
+                <h3 className="text-lg font-bold mb-2 text-white">{currentStep.title}</h3>
                 <p className="text-gray-400 text-sm leading-relaxed">{currentStep.content}</p>
             </div>
 
