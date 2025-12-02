@@ -1,8 +1,7 @@
 {
   "name": "OmniAI Studio",
-  "description": "A comprehensive AI suite featuring Veo video generation, Gemini 2.5 Live audio, advanced image editing, map grounding, and deep reasoning capabilities.",
+  "description": "A comprehensive AI suite featuring Gemini 2.5 Live audio, map grounding, and deep reasoning capabilities.",
   "requestFramePermissions": [
-    "camera",
     "microphone",
     "geolocation"
   ]
